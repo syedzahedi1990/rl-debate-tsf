@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distdeb"
+version = "0.0.1"
+description = "Distributional Debate: RL orchestration over predictive distributions for time series forecasting"
+requires-python = ">=3.10"
+authors = [{ name = "Syed Zahedi" }]
+license = { text = "MIT" }
+
+[tool.setuptools.packages.find]
+include = ["distdeb*"]
+
+[tool.pytest.ini_options]
+# Lets `pytest` resolve `import distdeb` from the repo root without `pip install -e .`.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
