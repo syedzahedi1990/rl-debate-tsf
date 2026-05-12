@@ -86,8 +86,9 @@ class ChronosBoltAgent(Agent):
         out = np.empty((N, Q, horizon), dtype=np.float32)
         for i in range(0, N, batch_size):
             batch = torch.tensor(histories[i : i + batch_size], dtype=torch.float32)
+            # Chronos >=1.5 renamed `context` -> `inputs` and returns CPU fp32 tensors.
             quantiles, _mean = self.pipeline.predict_quantiles(
-                context=batch,
+                inputs=batch,
                 prediction_length=horizon,
                 quantile_levels=list(map(float, levels)),
             )
