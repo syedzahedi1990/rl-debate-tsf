@@ -90,44 +90,13 @@ class QwenLLMTimeAgent(Agent):
         levels: np.ndarray,
         context: Optional[dict] = None,
     ) -> Forecast:
-        import torch
-
+        # Single-window convenience wrapper around forecast_batch.
         history = np.asarray(history, dtype=np.float32)
         if history.ndim == 2:
             history = history.squeeze(-1)
-
-        abs_max = float(np.abs(history).max()) + 1e-6
-        history_str = self._encode_history(history, abs_max)
-        prompt = (
-            "Time series forecast. Continue the sequence with exactly "
-            f"{horizon} more comma-separated values:\n"
-            f"{history_str} ,"
-        )
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-        max_new = horizon * self.max_new_token_factor + 32
-
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_new,
-                do_sample=True,
-                temperature=self.temperature,
-                top_p=self.top_p,
-                num_return_sequences=self.n_samples,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
-
-        input_length = inputs["input_ids"].shape[1]
-        samples = []
-        for i in range(self.n_samples):
-            completion = self.tokenizer.decode(
-                outputs[i, input_length:], skip_special_tokens=True
-            )
-            samples.append(self._parse_completion(completion, horizon, abs_max, self.pre_scale))
-        samples = np.stack(samples)  # (n_samples, horizon)
-        quantiles = np.quantile(samples, levels, axis=0).astype(np.float32)
+        out = self.forecast_batch(history[None, :], horizon, np.asarray(levels), batch_size=1)
         return Forecast(
-            quantiles=quantiles,
+            quantiles=out[0],
             levels=np.asarray(levels),
             agent_name=self.name,
             cost=self.nominal_cost,
@@ -138,16 +107,75 @@ class QwenLLMTimeAgent(Agent):
         histories: np.ndarray,
         horizon: int,
         levels: np.ndarray,
-        batch_size: int = 1,  # unused; LLM sampling parallelism is internal to .forecast
+        batch_size: int = 4,
     ) -> np.ndarray:
+        """Batched generation across multiple windows.
+
+        Each batch packs (batch_size * n_samples) sequences into a single
+        `model.generate` call. This is the throughput-critical optimization:
+        the single-window loop ran the GPU at ~5% util.
+        """
+        import torch
+
         histories = np.asarray(histories, dtype=np.float32)
         assert histories.ndim == 2, f"expected (N, L), got {histories.shape}"
         N = histories.shape[0]
         Q = len(levels)
         out = np.empty((N, Q, horizon), dtype=np.float32)
-        for i in range(N):
-            fc = self.forecast(histories[i], horizon, levels)
-            out[i] = fc.quantiles
+
+        # Left-pad for batched generation (otherwise generation continues
+        # from padding tokens, ruining outputs).
+        self.tokenizer.padding_side = "left"
+
+        for start in range(0, N, batch_size):
+            end = min(start + batch_size, N)
+            B = end - start
+            batch_hist = histories[start:end]
+            scales = np.maximum(np.abs(batch_hist).max(axis=-1), 1e-6)
+
+            prompts = [
+                (
+                    "Time series forecast. Continue the sequence with exactly "
+                    f"{horizon} more comma-separated values:\n"
+                    f"{self._encode_history(batch_hist[i], float(scales[i]))} ,"
+                )
+                for i in range(B)
+            ]
+
+            inputs = self.tokenizer(
+                prompts,
+                return_tensors="pt",
+                padding=True,
+            ).to(self.device)
+
+            max_new = horizon * self.max_new_token_factor + 32
+
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new,
+                    do_sample=True,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    num_return_sequences=self.n_samples,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+
+            input_length = inputs["input_ids"].shape[1]
+            # outputs ordering: [w0_s0, w0_s1, ..., w0_sK, w1_s0, ...]
+            for i in range(B):
+                samples = []
+                for j in range(self.n_samples):
+                    row = i * self.n_samples + j
+                    completion = self.tokenizer.decode(
+                        outputs[row, input_length:], skip_special_tokens=True
+                    )
+                    samples.append(
+                        self._parse_completion(completion, horizon, float(scales[i]), self.pre_scale)
+                    )
+                samples_arr = np.stack(samples)
+                out[start + i] = np.quantile(samples_arr, levels, axis=0).astype(np.float32)
+
         return out
 
     def _format_number(self, x: float) -> str:
