@@ -1,0 +1,3 @@
+# Vendored / external code goes here.
+# TSLib (thuml/Time-Series-Library) is cloned on demand by scripts/setup_tslib.sh
+# when we start running specialist DL baselines (PatchTST, iTransformer, etc).

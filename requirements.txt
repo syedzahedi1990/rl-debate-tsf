@@ -1,0 +1,32 @@
+# Core
+numpy>=1.26
+pandas>=2.0
+scipy>=1.11
+scikit-learn>=1.3
+
+# Classical TS
+statsmodels>=0.14
+
+# DL stack (use the version Colab Pro provides; pin loosely)
+torch>=2.1
+einops>=0.7
+
+# Hugging Face / foundation forecasters
+transformers>=4.40
+accelerate>=0.30
+chronos-forecasting>=1.4
+
+# RL utilities (we write our own PPO loop; keeping deps minimal)
+gymnasium>=0.29
+
+# Eval / stats
+properscoring>=0.1
+matplotlib>=3.7
+
+# Config / logging
+hydra-core>=1.3
+omegaconf>=2.3
+tqdm>=4.66
+
+# Test
+pytest>=7.4

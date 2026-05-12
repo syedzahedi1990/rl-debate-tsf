@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.env
+.ipynb_checkpoints/
+
+# data and checkpoints
+dataset/
+data_cache/
+checkpoints/
+results/*.csv
+results/*.parquet
+results/*.pkl
+results/runs/
+results/wandb/
+
+# notebooks scratch
+*.local.ipynb
+
+# third-party state
+third_party/Time-Series-Library/dataset/
+third_party/Time-Series-Library/checkpoints/
+third_party/Time-Series-Library/results/
