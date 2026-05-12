@@ -55,15 +55,24 @@ class TimesFMAgent(Agent):
         if backend is None:
             backend = "gpu" if torch.cuda.is_available() else "cpu"
 
+        # Different timesfm releases accept slightly different hparam kwargs.
+        # Try the full set first; fall back to the minimal set if any kwarg
+        # is rejected.
+        hparam_kwargs = dict(
+            backend=backend,
+            per_core_batch_size=per_core_batch_size,
+            horizon_len=horizon_len,
+            context_len=context_len,
+            num_layers=50,
+            use_positional_embedding=False,
+        )
+        try:
+            hparams = timesfm.TimesFmHparams(**hparam_kwargs)
+        except TypeError:
+            minimal = {k: hparam_kwargs[k] for k in ("backend", "per_core_batch_size", "horizon_len", "context_len")}
+            hparams = timesfm.TimesFmHparams(**minimal)
         self._tfm = timesfm.TimesFm(
-            hparams=timesfm.TimesFmHparams(
-                backend=backend,
-                per_core_batch_size=per_core_batch_size,
-                horizon_len=horizon_len,
-                context_len=context_len,
-                num_layers=50,  # required by 2.0-500m
-                use_positional_embedding=False,
-            ),
+            hparams=hparams,
             checkpoint=timesfm.TimesFmCheckpoint(huggingface_repo_id=repo_id),
         )
         self._frequency = frequency

@@ -26,6 +26,15 @@ Subsequent iterations: just `!git pull`.
 !pip -q install statsmodels properscoring chronos-forecasting transformers accelerate hydra-core omegaconf einops gymnasium
 ```
 
+## Cell 3b — install heterogeneous-panel deps (extra)
+
+```bash
+# timesfm[torch] avoids the JAX/paxml dep chain that pins to lingvo
+# (which has no Python 3.12 wheels). Without [torch], install fails on Colab.
+!pip -q install 'timesfm[torch]'
+!pip -q install uni2ts        # Salesforce Moirai
+```
+
 ## Cell 4 — unit tests
 
 ```bash

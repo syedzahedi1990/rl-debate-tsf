@@ -15,7 +15,10 @@ einops>=0.7
 transformers>=4.40
 accelerate>=0.30
 chronos-forecasting>=1.4
-timesfm>=1.2          # Google TimesFM foundation model
+# Note: use `pip install 'timesfm[torch]'` to skip the JAX/paxml dep tree,
+# which pins to lingvo with no Python 3.12 wheels. The plain extra-less install
+# will fail on Colab (Python 3.12).
+timesfm[torch]>=1.2   # Google TimesFM foundation model
 uni2ts>=1.2           # Salesforce Moirai foundation model
 
 # RL utilities (we write our own PPO loop; keeping deps minimal)
