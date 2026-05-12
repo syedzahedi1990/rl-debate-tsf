@@ -28,18 +28,25 @@ Subsequent iterations: just `!git pull`.
 
 ## Cell 3b — install heterogeneous-panel deps
 
+**If you just ran `pip install uni2ts` on a previous attempt the runtime is
+in a broken state** (uni2ts downgrades torch to 2.4 while leaving Colab's
+torchvision 0.25 that was built for torch 2.10). To recover:
+
+1. Runtime → Disconnect and delete runtime
+2. Runtime → Connect → fresh runtime
+3. Re-run cells 1, 2, 3, 5 (clone + base deps + data download).
+
+Then for the heterogeneous panel:
+
 ```bash
-# Moirai foundation model
-!pip -q install uni2ts
+# Moirai: install uni2ts + a torchvision that matches the torch it downgrades to
+!pip -q install uni2ts torchvision==0.19.1
+# Qwen-LLMTime: nothing extra — transformers + accelerate (from Cell 3) are enough.
 ```
 
-**Note on TimesFM**: timesfm is currently incompatible with Python 3.12 (which
-is what Colab uses). The PyPI versions split:
-  - 1.0.0 — installable on 3.12 but requires paxml (no 3.12 wheel chain).
-  - 1.2+ — has `[torch]` extra avoiding paxml, but requires Python <3.12.
-TimesFM is deferred to the final paper run on a Python 3.11 vast.ai instance.
-The 3-agent panel (Chronos / Moirai / Qwen-LLMTime) is enough for pilot
-diversity.
+**Note on TimesFM**: incompatible with Python 3.12 (Colab's runtime) — 1.0.0
+needs paxml (no 3.12 wheels), 1.2+ pins Python <3.12. Deferred to the final
+paper run on a Py3.11 vast.ai instance.
 
 ## Cell 4 — unit tests
 
@@ -59,6 +66,21 @@ Expected: 5 passed.
 
 ```bash
 !python scripts/smoke_etth1.py --windows 32 --horizon 96
+```
+
+## Cell 6b — smoke test individual new agents
+
+```bash
+# Each takes <1 min once weights are downloaded.
+!python scripts/smoke_agent.py --agent chronos_base --windows 32 --horizon 96
+!python scripts/smoke_agent.py --agent moirai --windows 32 --horizon 96
+!python scripts/smoke_agent.py --agent qwen_llmtime --windows 8 --horizon 96  # uses Qwen2.5-1.5B
+```
+
+For the actual pilot, bump Qwen to 7B:
+
+```bash
+!python scripts/smoke_agent.py --agent qwen_llmtime_7b --windows 8 --horizon 96
 ```
 
 ## Cell 7 — Gate 1: smaller subset (fast sanity, ~1-2 min)

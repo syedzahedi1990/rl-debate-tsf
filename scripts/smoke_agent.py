@@ -41,6 +41,13 @@ def build_agent(name: str):
     if name == "moirai":
         from distdeb.agents.moirai_agent import MoiraiAgent
         return MoiraiAgent(model_id="Salesforce/moirai-1.1-R-base")
+    if name == "qwen_llmtime":
+        from distdeb.agents.llmtime_agent import QwenLLMTimeAgent
+        # 1.5B for smoke speed; bump to 7B for the actual Gate 1e pilot.
+        return QwenLLMTimeAgent(model_id="Qwen/Qwen2.5-1.5B", n_samples=10)
+    if name == "qwen_llmtime_7b":
+        from distdeb.agents.llmtime_agent import QwenLLMTimeAgent
+        return QwenLLMTimeAgent(model_id="Qwen/Qwen2.5-7B", n_samples=20)
     raise ValueError(f"unknown agent: {name!r}")
 
 

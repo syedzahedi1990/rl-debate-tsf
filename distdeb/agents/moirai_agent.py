@@ -37,7 +37,15 @@ class MoiraiAgent(Agent):
         name_suffix: str = "",
     ):
         import torch
-        from uni2ts.model.moirai import MoiraiModule
+
+        # Direct module import to bypass uni2ts.model.moirai.__init__, which
+        # loads finetune.py and pulls in pytorch_lightning. lightning isn't
+        # needed for inference and brings in torchmetrics/torchvision which
+        # commonly version-mismatch with Colab's pre-installed torchvision.
+        try:
+            from uni2ts.model.moirai.module import MoiraiModule
+        except ImportError:
+            from uni2ts.model.moirai import MoiraiModule
 
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -76,7 +84,10 @@ class MoiraiAgent(Agent):
         batch_size: int = 32,
     ) -> np.ndarray:
         import torch
-        from uni2ts.model.moirai import MoiraiForecast
+        try:
+            from uni2ts.model.moirai.forecast import MoiraiForecast
+        except ImportError:
+            from uni2ts.model.moirai import MoiraiForecast
 
         histories = np.asarray(histories, dtype=np.float32)
         assert histories.ndim == 2, f"expected (N, L), got {histories.shape}"
