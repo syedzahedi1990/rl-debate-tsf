@@ -26,14 +26,20 @@ Subsequent iterations: just `!git pull`.
 !pip -q install statsmodels properscoring chronos-forecasting transformers accelerate hydra-core omegaconf einops gymnasium
 ```
 
-## Cell 3b — install heterogeneous-panel deps (extra)
+## Cell 3b — install heterogeneous-panel deps
 
 ```bash
-# timesfm[torch] avoids the JAX/paxml dep chain that pins to lingvo
-# (which has no Python 3.12 wheels). Without [torch], install fails on Colab.
-!pip -q install 'timesfm[torch]'
-!pip -q install uni2ts        # Salesforce Moirai
+# Moirai foundation model
+!pip -q install uni2ts
 ```
+
+**Note on TimesFM**: timesfm is currently incompatible with Python 3.12 (which
+is what Colab uses). The PyPI versions split:
+  - 1.0.0 — installable on 3.12 but requires paxml (no 3.12 wheel chain).
+  - 1.2+ — has `[torch]` extra avoiding paxml, but requires Python <3.12.
+TimesFM is deferred to the final paper run on a Python 3.11 vast.ai instance.
+The 3-agent panel (Chronos / Moirai / Qwen-LLMTime) is enough for pilot
+diversity.
 
 ## Cell 4 — unit tests
 

@@ -38,6 +38,9 @@ def build_agent(name: str):
     if name == "timesfm":
         from distdeb.agents.timesfm_agent import TimesFMAgent
         return TimesFMAgent(repo_id="google/timesfm-2.0-500m-pytorch")
+    if name == "moirai":
+        from distdeb.agents.moirai_agent import MoiraiAgent
+        return MoiraiAgent(model_id="Salesforce/moirai-1.1-R-base")
     raise ValueError(f"unknown agent: {name!r}")
 
 
