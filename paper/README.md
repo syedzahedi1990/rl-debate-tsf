@@ -7,10 +7,18 @@ calibration workshop (ICLR/NeurIPS/ICML workshop tracks) or TMLR.
 
 ```
 cd paper/
-pdflatex main.tex
+pdflatex -interaction=nonstopmode main.tex
 bibtex   main
-pdflatex main.tex
-pdflatex main.tex   # one more pass for cross-refs
+pdflatex -interaction=nonstopmode main.tex
+pdflatex -interaction=nonstopmode main.tex   # one more pass for cross-refs
+```
+
+The `-interaction=nonstopmode` flag prevents latex from halting on missing-package
+errors (it logs and continues, producing a PDF if possible). On a fresh Colab
+runtime, install the LaTeX packages first:
+
+```
+!apt-get update -qq && apt-get install -y -qq texlive texlive-latex-extra texlive-fonts-recommended
 ```
 
 The `\includegraphics` lines for figures are commented out by default
