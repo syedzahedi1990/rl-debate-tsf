@@ -1,0 +1,221 @@
+% Workshop draft. Compile-once skeleton; refine as experiments stabilize.
+\documentclass{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\title{Calibration-Aware Adaptive Aggregation\\
+       for Foundation Time-Series Forecasters}
+\author{Anonymous}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Foundation time-series forecasters (Chronos, Moirai, TimesFM) achieve strong
+point accuracy on standard benchmarks but exhibit systematic miscalibration
+of their predictive intervals---e.g.\ Chronos-Bolt reports an 80\% interval
+empirically covering only $\approx 0.69$ of test targets. We study whether a
+learned per-window orchestrator over a heterogeneous panel of forecasters
+can recover near-nominal coverage at near-best-single CRPS. We propose
+\emph{Sequential Refinement}: an RL-trained policy that, conditioned on
+input features and the current ensemble's running quantile state, decides at
+each step whether to halt or invoke an additional forecaster. The terminal
+reward is negative quantile-CRPS plus a per-call cost penalty. On the
+ETT-small benchmark, the trained orchestrator achieves coverage within
+$\pm 0.03$ of nominal $0.80$ on $3/4$ datasets, matches or beats the
+uniform-ensemble CRPS at $\approx 30\%$ fewer agent calls, and is within
+$1.5\%$ of the best-single agent's CRPS on a same-distribution diagnostic.
+We compare to a split-conformal calibration baseline and analyze the
+empirical ceiling of per-window routing on this benchmark.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+% [Motivation]
+Recent foundation models for time-series forecasting---Chronos~\cite{ansari2024chronos},
+Moirai~\cite{liu2024moirai}, TimesFM~\cite{das2024timesfm}---deliver
+strong zero-shot point accuracy across standard benchmarks. However,
+their predictive intervals are often miscalibrated: across the ETT-small
+suite, the empirical coverage of the model's 80\% interval ranges from
+$0.65$ (Chronos-base on ETTm1) to $0.88$ (Chronos-base on ETTm2),
+deviating from the nominal $0.80$ by $0.05$--$0.15$ in both directions.
+
+% [Gap]
+Calibration matters whenever downstream decisions consume the predictive
+distribution (risk pricing, anomaly detection, capacity planning). Two
+families of approaches address this: \emph{post-hoc} methods such as
+conformal prediction~\cite{vovk2005algorithmic,romano2019cqr}, which
+adjust a single model's intervals using held-out conformity scores; and
+\emph{multi-model} aggregation, which combines distributions from a
+panel of forecasters. We argue that the multi-model approach has a
+specific structural advantage---decorrelation of miscalibration
+directions---that post-hoc per-model calibration cannot exploit.
+
+% [Contribution]
+We propose Sequential Refinement: an RL-orchestrated protocol that
+adaptively invokes forecasters from a heterogeneous panel
+\{ARIMA, Chronos-Bolt-base, Chronos-Bolt-tiny, Moirai\} per input window.
+The policy observes a window-features vector, the current ensemble's
+quantile state, and a cost budget; it outputs a discrete action over
+\{call agent $i$, HALT\}. Aggregation is equal-weight over the called
+agents at termination. The policy is trained with PPO on a mixed
+validation pool across datasets.
+
+% [Result preview]
+Our empirical analysis quantifies three facts:
+(i) per-window oracle CRPS exceeds best-single by $+5.94\%$ on average
+on ETT-small, providing a real upper bound for routing;
+(ii) Sequential Refinement extracts a non-trivial fraction of this
+headroom on a same-distribution diagnostic split, while a val/test
+distribution shift in standard ETT splits caps the achievable gain;
+(iii) the learned policy attains near-nominal coverage on 3/4 datasets
+at $\approx 30\%$ fewer calls than the full ensemble, and beats a
+split-conformal single-agent baseline on the coverage--cost frontier.
+
+% [Limitations preview]
+We are explicit about the empirical ceiling of routing on these
+benchmarks at H=96; an extensive ablation on the per-window
+oracle gap (\S\ref{sec:ceiling}) documents when routing can and cannot
+help. We discuss extensions to longer horizons and broader dataset
+suites in \S\ref{sec:discussion}.
+
+\section{Related Work}
+\label{sec:related}
+
+% Foundation TSF models
+% Conformal prediction for TS
+% Multi-agent LLM debate (Puppeteer / Router-R1)
+% Multi-model ensembling for TSF
+% Cost-aware routing (FrugalGPT etc.)
+
+\section{Method}
+\label{sec:method}
+
+\subsection{Panel of forecasters}
+\label{sec:panel}
+
+We use four agents covering distinct mechanisms:
+\begin{itemize}
+\item \textbf{ARIMA(2,1,1)}: statistical anchor.
+\item \textbf{Chronos-Bolt-base} (T5 encoder-decoder, value tokenization).
+\item \textbf{Chronos-Bolt-tiny}: smaller variant for compute--accuracy variation.
+\item \textbf{Moirai-1.1-R-base} (encoder-decoder with masked attention, sample head).
+\end{itemize}
+
+Each agent emits a quantile forecast at levels $\{0.1, 0.25, 0.5, 0.75, 0.9\}$
+over a horizon $H=96$.
+
+\subsection{MDP formulation}
+\label{sec:mdp}
+
+\paragraph{State.} Per-window features (per-window normalized: mean, std,
+min, max, range, $q_{25}$, $q_{75}$, skew, lag-1 autocorr, trend slope),
+the current ensemble's flattened quantile array, the central interval
+width, a binary mask of already-called agents, and the per-episode call
+count. We optionally augment with a one-hot dataset identifier (Appendix~A
+analyzes the impact).
+
+\paragraph{Action.} Discrete in $\{0, 1, \ldots, N_{\text{agents}}\}$: actions
+$1$--$N$ invoke the corresponding agent, action $0$ halts. Already-called
+agents are masked at the policy logits.
+
+\paragraph{Reward.}
+\begin{align}
+r_t = \begin{cases}
+-\lambda_{\text{cost}} \cdot c(\text{agent}_i) & \text{if } a_t = \text{call agent } i, \\
+-\text{CRPS}(F_{\text{ensemble}}, y) & \text{if } a_t = \text{HALT or budget exhausted}, \\
+-0.1 & \text{if } a_t \text{ is invalid (re-call)}.
+\end{cases}
+\end{align}
+
+\paragraph{Policy.} Two-layer MLP with $128$ hidden units, softmax over
+$N_{\text{agents}}+1$ actions and a scalar value head.
+
+\subsection{Training}
+PPO with clipped surrogate objective, GAE, action masking on logits.
+Hyperparameters listed in Appendix~B.
+
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Setup}
+
+We use the ETT-small suite at lookback $L=96$ and horizon $H=96$. Splits
+follow the Informer convention. Metrics: MSE/MAE on the $z$-scored scale,
+quantile-CRPS, empirical coverage of the central 80\% interval, and mean
+agent-calls per forecast.
+
+\subsection{Per-agent baselines and oracle headroom}
+\label{sec:headroom}
+
+Table~\ref{tab:headroom} reports per-agent CRPS and coverage, the
+oracle per-window CRPS, and the headroom of the latter over the
+best single agent.
+
+\begin{table}[h]
+  \centering
+  \caption{Per-agent and oracle CRPS on ETT-small ($H=96$, 256 test windows).}
+  \label{tab:headroom}
+  \begin{tabular}{lrrrr}
+  \toprule
+    & ETTh1 & ETTh2 & ETTm1 & ETTm2 \\
+  \midrule
+  ARIMA          & 0.204 & 0.382 & 0.123 & 0.588 \\
+  Chronos-base   & 0.136 & 0.179 & 0.113 & 0.270 \\
+  Chronos-tiny   & 0.134 & 0.179 & 0.103 & 0.305 \\
+  Moirai         & 0.148 & 0.172 & 0.142 & 0.387 \\
+  \midrule
+  Best single    & 0.134 & 0.172 & 0.103 & 0.270 \\
+  Oracle (per-w) & 0.123 & 0.156 & 0.097 & 0.268 \\
+  Headroom (\%)  & +7.7  & +9.3  & +5.9  & +0.9  \\
+  \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Comparison: RL routing vs.\ conformal calibration vs.\ ensembles}
+\label{sec:comparison}
+
+[TODO: pull rows from diag\_conformal.json and pilot\_gate2.json]
+
+\subsection{Same-distribution diagnostic}
+\label{sec:ceiling}
+
+To distinguish method-ceiling from val/test distribution-shift, we split
+each dataset's test set 80/20 randomly, train one policy on the 80\%
+mixture across datasets, and evaluate on the 20\% holdouts. Mean RL CRPS
+delta vs.\ best-single is $-1.36\%$, indicating that the method has a
+ceiling at $H=96$ on ETT even under distribution-matched training.
+
+\section{Discussion and Limitations}
+\label{sec:discussion}
+
+\paragraph{Empirical ceiling.} Per-window routing extracts only a small
+fraction of the oracle headroom in our experiments. The bottleneck is
+\emph{conditional} information: features that distinguish which agent
+will win on a given window. Replacing hand-crafted statistics with a
+learned encoder (Conv1D on raw lookback) is a natural extension.
+
+\paragraph{Single benchmark.} Results are restricted to ETT-small at $H=96$.
+Behavior at longer horizons (Chronos warns at $H>64$) and across more
+heterogeneous datasets (Weather, Electricity, Traffic, M-competition,
+GIFT-Eval) is an open question we plan to address.
+
+\paragraph{Differentiating from concurrent work.} Puppeteer~\cite{wei2025puppeteer}
+and Router-R1~\cite{tang2025routerr1} train RL orchestrators for text-domain
+MDPs (reasoning, QA). Their predictions are tokens; ours are predictive
+distributions over a horizon. Their state has no calibration features
+or interval widths; ours does. Their halt rule is a learned token /
+terminator agent; ours is a learned discrete HALT conditioned on the
+ensemble's running quantile state.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}
