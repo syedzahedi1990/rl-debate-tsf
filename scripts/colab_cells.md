@@ -74,14 +74,41 @@ Expected: 5 passed.
 # Each takes <1 min once weights are downloaded.
 !python scripts/smoke_agent.py --agent chronos_base --windows 32 --horizon 96
 !python scripts/smoke_agent.py --agent moirai --windows 32 --horizon 96
-!python scripts/smoke_agent.py --agent qwen_llmtime --windows 8 --horizon 96  # uses Qwen2.5-1.5B
 ```
 
-For the actual pilot, bump Qwen to 7B:
+## Persist forecast cache to Google Drive (recommended)
+
+Colab's `/content` is wiped on runtime disconnect — every pilot re-run loses
+the cached forecasts. To avoid this, mount Drive and set the cache root:
+
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+
+import os
+os.environ['DISTDEB_CACHE_ROOT'] = '/content/drive/MyDrive/rl-debate-tsf-cache'
+!mkdir -p $DISTDEB_CACHE_ROOT
+```
+
+Then every subsequent `python scripts/...` call (in the same notebook) will
+read/write the persistent cache. To override per-invocation: `--cache-root /content/drive/MyDrive/rl-debate-tsf-cache`.
+
+## Gate 2 — train + eval the RL orchestrator
+
+After pilot_gate1e has populated the cache for the 4-agent panel:
 
 ```bash
-!python scripts/smoke_agent.py --agent qwen_llmtime_7b --windows 8 --horizon 96
+!python scripts/pilot_gate2.py --n-iters 200 --windows 256
 ```
+
+Time: a few minutes (rollouts are free — all forecasts are cached). Reports
+per-dataset CRPS / coverage_80 / mean_n_calls for the trained RL policy
+vs. each single agent and the uniform ensemble.
+
+Gate 2 PASS criteria (per DESIGN.md S8):
+  - cov80 within +/-0.03 of 0.80 on >= 3/4 datasets
+  - CRPS within 2% of best single on all datasets
+  - mean n_calls < N_agents (HALT is being used)
 
 ## Cell 7 — Gate 1: smaller subset (fast sanity, ~1-2 min)
 

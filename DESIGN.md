@@ -1,17 +1,19 @@
-# Distributional Debate: RL Orchestration over Predictive Distributions for Time Series Forecasting
+# Calibration-Aware Adaptive Aggregation for Foundation Time-Series Forecasters
 
-**Status:** Design locked 2026-05-12. Pilot in progress.
+**Status:** Design v2 locked 2026-05-13. Pivoted from CRPS-headline to calibration-headline after Gate 1a–e replicated the finding that no static mixture beats best single Chronos on CRPS at H=96 on ETT-small, but every ensemble consistently restores near-nominal coverage. Oracle headroom analysis (5.94% mean, 7.62% excl. ETTm2) supports a cautious build of the orchestrator.
 
 ## 1. Contribution claim
 
-We propose **Distributional Debate (DistDeb)**: an RL-trained orchestrator over a heterogeneous panel of time-series forecasters that
+Foundation TSF models (Chronos, Moirai, TimesFM) achieve strong point accuracy but are **systematically miscalibrated** — Chronos cov80 ≈ 0.69, Moirai ≈ 0.78 on a 0.80 nominal target across ETT-small. Per-window oracle analysis shows the best agent varies across windows on 3/4 datasets, with 6–9% CRPS headroom over best-single available to a perfect router.
 
-1. routes on a **regime-aware state** (state includes a learned regime embedding from the series, recent volatility, autocorrelation, stationarity statistics — not just text history),
-2. halts on a **calibration-aware criterion** (stop when predictive-interval width drops below a learned threshold *and* empirical coverage matches nominal),
-3. aggregates via **learned distributional combinators** (action space includes quantile-stacking weights and conformal-calibration parameters, not just "which agent to call next"),
-4. trains end-to-end with a **CRPS-grounded cost-aware reward**.
+We propose an RL-orchestrated **sequential refinement protocol**: starting from a cheap forecast, the policy decides whether to halt or invoke an additional agent at each step, accumulating quantile forecasts in a running ensemble. The policy is trained to minimize CRPS at low compute cost; **near-nominal coverage emerges as a property of the diverse panel ensemble**, and we additionally report calibration-conditioned variants of the reward.
 
-The orchestrator's MDP outputs a *predictive distribution over a horizon*, not a text token. This makes DistDeb a fundamentally different MDP from Puppeteer (Wei et al., 2025) and Router-R1 (Tang et al., NeurIPS'25), which both produce discrete text outputs and use text-only state.
+**The headline empirical claim is calibration**: matching the most accurate single-agent's CRPS *while* achieving nominal coverage *and* using fewer agent calls than the full panel ensemble.
+
+**The MDP-level differentiation from Puppeteer (Wei et al., 2025) and Router-R1 (Tang et al., NeurIPS'25)** is preserved:
+- They output text tokens; we output predictive distributions over a horizon.
+- Their state has no notion of calibration or interval width; ours does.
+- They terminate on `<answer>` / Terminator agent; we terminate on a learned HALT that conditions on ensemble width.
 
 ## 2. Differentiation from prior work
 
@@ -33,33 +35,33 @@ Three things prior work **cannot** do, by construction of their MDPs:
 - Use calibration of a predictive distribution as a halt signal.
 - Route based on regime structure of an input signal.
 
-## 3. MDP formulation (precise)
+## 3. MDP formulation (precise — v2 sequential refinement)
 
-**State** s_t at debate step t:
-- `series_embedding`: pretrained TS encoder output (e.g., Chronos-Bolt-tiny encoder, frozen) over the lookback window.
-- `regime_features`: ADF statistic, trend slope, dominant period from FFT, recent vol, lag-1 autocorr.
-- `ensemble_state`: current quantile forecasts {q_0.1, q_0.5, q_0.9} from agents called so far (concatenated), agent call mask, per-agent computational cost incurred.
-- `calibration_state`: rolling empirical coverage of 80% intervals on a held-out calibration buffer (refreshed during training).
-- `budget_remaining`: scalar.
+**State** s_t at refinement step t:
+- `window_features`: lookback summary statistics (mean, std, min, max, range, skew, autocorr lag-1, stationarity stat). Per-window normalized.
+- `ensemble_quantiles`: flattened current ensemble's quantile forecasts (Q × H), zero if no agents called yet.
+- `ensemble_width`: scalar — mean width of the 80% interval across horizon.
+- `called_mask`: binary (N_agents,) — which agents have been invoked.
+- `n_calls`: scalar.
 
-**Action** a_t (factored):
-- `agent_choice ∈ {0, ..., N_agents}` where `0 = HALT-and-aggregate`.
-- `combiner_update ∈ R^N_agents` (simplex, softmax-parameterized): how to weight quantile forecasts in current aggregation.
-- (optional) `conformal_delta ∈ R`: post-hoc shift applied to quantile width.
+**Action** a_t ∈ {0, 1, ..., N_agents}:
+- `0` = HALT — terminate and emit current ensemble as final forecast.
+- `1..N_agents` = call agent i (invalid if already called → masked or penalized).
 
-**Transition**: deterministic given agent output. If agent_choice = i ≠ 0, agent i is invoked, its forecast appended to ensemble_state. If agent_choice = 0, episode terminates and final aggregated distribution is produced from combiner_update.
+**Transition**: deterministic. If action = call i, agent i's *cached* quantile forecast for the current window is added to ensemble (equal-weight aggregation across called agents). If action = HALT or all agents called, terminal.
 
-**Reward**: episodic. At termination,
-```
-R = −CRPS(F_aggregate, y) − λ_calls · n_calls − λ_cal · |coverage_80 − 0.8|
-```
-where `F_aggregate` is the final predictive distribution and `y` is the ground-truth horizon. λ_calls and λ_cal are hyperparameters swept in ablation. Per-step shaping: −λ_calls per call to encourage early halt.
+**Reward**:
+- Per-step: −λ_cost · cost(agent_i) when calling agent i. Encourages early halt.
+- Terminal: −CRPS(F_final, y) for window y. Implicitly rewards calibrated forecasts because CRPS penalizes both under- and over-coverage.
+- Optional calibration term: −λ_cal · |emp_cov_80(batch) − 0.80| computed batch-level during training.
 
-**Horizon (RL)**: max 6 debate steps (matches Puppeteer's 4-step budget — slightly higher for fair benchmarking).
+**Horizon (RL)**: at most N_agents steps (one per agent), naturally bounded.
 
-**Policy architecture**: 2-layer transformer over a flattened state vector (~512-d), softmax head over agent_choice, separate softmax head over combiner weights, MLP head over conformal_delta. ~5M params. Small enough to train on a single A100 in hours; large enough to have capacity over the state we provide.
+**Policy architecture**: 2-layer MLP, 128 hidden, ReLU. Inputs: flattened state (~50 dims). Outputs: softmax over N_agents+1 actions + scalar value head. ~30k parameters. Trains in minutes on A100.
 
-**RL algorithm**: PPO with KL anchor to a *fixed round-robin policy* (a uniform schedule over agents). The KL anchor prevents collapse to a single-agent policy during early training (the failure mode REINFORCE-no-baseline tends to hit). Borrowed from Router-R1's PPO recipe.
+**RL algorithm**: PPO with clipped surrogate objective. Single policy trained on val windows mixed across all 4 datasets (≥ 1000 windows total). Evaluated on test windows per-dataset. KL anchor to a uniform-random policy for the first 100 updates to prevent collapse.
+
+**Action masking**: invalid actions (already-called agents) are masked from the policy distribution at inference and training. The HALT action is always available.
 
 ## 4. Agent panel
 
@@ -112,15 +114,22 @@ All agents output quantile forecasts {0.1, 0.5, 0.9} over the horizon. We standa
 - **"Should we be going MAD?" (Smit et al., ICML'24) and "Debate or Vote" (2508.17536).** Cost-matched majority vote is the headline baseline. If we don't beat it on CRPS at matched n_calls, the paper is dead.
 - **MAD over-flips correct answers (ICLR 2025 blog).** Report answer-stability metric: fraction of forecasts that change sign / direction across debate rounds.
 
-## 8. Pilot success criteria (kill / pivot / proceed)
+## 8. Pilot gates — current state (2026-05-13)
 
-Run pilot on ETTh1 only, H=96, 3 seeds, single A100.
+- **Gate 1 (any static mixture beats best single on CRPS?): FAILED** across 5 attempts. Equal-weight ensemble, val-tuned simplex, val-tuned over heterogeneous panels — none beat the best single Chronos on a majority of ETT datasets. Diagnosed: at H=96 on ETT, Chronos near-saturates the achievable CRPS; no static mixture extracts more.
 
-- **Premise check (gate 1):** Does *any* multi-agent debate configuration on our panel beat the best single agent in CRPS at matched cost? If no → premise dead → pivot to a paper about *why* debate doesn't help TSF (still publishable, smaller venue).
-- **Method check (gate 2):** Does DistDeb beat the random + fixed-schedule + greedy-halt ablations by ≥3% on CRPS at matched n_calls? If no → RL is not contributing → investigate state/reward design, retry once, then pivot.
-- **Generalization check (gate 3):** Do gains hold on ETTh2 and ETTm1 with the same trained orchestrator? If no → overfitting → broaden training set, retry.
+- **Gate 1b (oracle per-window headroom): PARTIAL PASS** at +5.94% mean (7.62% excl. saturated ETTm2). Per-window decorrelation is real — oracle picks different agents on 22–37% of windows across 3/4 datasets. A learned orchestrator can in principle extract a fraction of this.
 
-Each gate is binary. Each gate failure triggers a documented decision: retry once with a specified fix, or pivot. Total pilot budget: ≤5 days of A100 time + ≤$50 of frontier API for failure-mode analysis.
+- **Gate 2 (does the RL orchestrator beat baselines on calibration AND at-matched-cost CRPS?)**:
+  - Pass criteria:
+    1. Test cov80 within ±0.03 of nominal 0.80 on ≥ 3/4 datasets.
+    2. Test CRPS not worse than best-single by more than 2% on any dataset.
+    3. Mean n_calls < N_agents (i.e., RL is exercising the halt action).
+  - Fail → pivot to a pure-calibration paper (no RL component), or expand dataset suite.
+
+- **Gate 3 (generalization to more datasets and longer horizons)**: deferred until Gate 2 passes. Targets: Weather, Electricity, Traffic, plus a GIFT-Eval subset; horizons {96, 336, 720}.
+
+Total pilot budget remaining: ≤ 3 days of A100 time. Cache persistence on Drive is mandatory to avoid the 7-hour-loss-on-disconnect problem.
 
 ## 9. Risks (known)
 

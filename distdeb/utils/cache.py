@@ -15,10 +15,13 @@ Conventions:
     so different agent configs don't collide.
   - If a cache file exists but with too few windows or different levels,
     `load` returns None and the caller recomputes.
+  - Root resolves from arg > env DISTDEB_CACHE_ROOT > default. Set the env
+    var to a Drive path to persist cache across Colab runtime disconnects.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,7 +29,9 @@ import numpy as np
 
 
 class ForecastCache:
-    def __init__(self, root: str | Path = "data_cache/forecasts"):
+    def __init__(self, root: Optional[str | Path] = None):
+        if root is None:
+            root = os.environ.get("DISTDEB_CACHE_ROOT", "data_cache/forecasts")
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
