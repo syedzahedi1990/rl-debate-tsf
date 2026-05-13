@@ -64,7 +64,7 @@ def fig_method_comparison(conformal_path="results/diag_conformal.json"):
             return d["rl"][key] if d["rl"] else np.nan
         raise ValueError(m)
 
-    fig, (axc, axv) = plt.subplots(1, 2, figsize=(11, 3.6))
+    fig, (axc, axv) = plt.subplots(1, 2, figsize=(11, 4.2))
     width = 0.16
     x = np.arange(len(datasets))
 
@@ -82,9 +82,19 @@ def fig_method_comparison(conformal_path="results/diag_conformal.json"):
     axc.set_title("(a) CRPS")
     axv.set_ylabel("empirical 80% coverage")
     axv.set_title("(b) coverage (nominal 0.80)")
-    axv.axhline(0.80, color="black", linewidth=0.7, linestyle="--", label="nominal")
-    axv.legend(loc="upper left", fontsize=7, ncol=1, frameon=False)
-    plt.tight_layout()
+    nominal = axv.axhline(0.80, color="black", linewidth=0.8, linestyle="--", alpha=0.7)
+    axv.set_ylim(0, 1.05)
+
+    # Single shared legend below both panels, horizontal.
+    handles, labels_l = axc.get_legend_handles_labels()
+    handles.append(nominal)
+    labels_l.append("nominal 0.80")
+    fig.legend(
+        handles, labels_l,
+        loc="lower center", bbox_to_anchor=(0.5, -0.02),
+        ncol=len(handles), fontsize=8, frameon=False,
+    )
+    plt.tight_layout(rect=[0, 0.08, 1, 1])
     out = os.path.join(OUT_DIR, "method_comparison.pdf")
     plt.savefig(out, bbox_inches="tight")
     plt.close()
