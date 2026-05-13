@@ -108,10 +108,13 @@ def main():
     p.add_argument("--val-windows", type=int, default=512, help="Val windows per dataset used for RL training.")
     p.add_argument("--cache-root", default=None, help="Defaults to env var DISTDEB_CACHE_ROOT or data_cache/forecasts.")
     p.add_argument("--agents", nargs="+", default=["arima", "chronos_base", "chronos_tiny", "moirai"])
-    p.add_argument("--cost-weight", type=float, default=0.01)
-    p.add_argument("--n-iters", type=int, default=200)
+    p.add_argument("--cost-weight", type=float, default=0.001)
+    p.add_argument("--entropy-coef", type=float, default=0.05)
+    p.add_argument("--n-iters", type=int, default=500)
     p.add_argument("--episodes-per-iter", type=int, default=256)
-    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr", type=float, default=1e-4)
+    p.add_argument("--include-dataset-id", action="store_true", default=True)
+    p.add_argument("--no-dataset-id", dest="include_dataset_id", action="store_false")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="results/pilot_gate2.json")
     p.add_argument("--ckpt", default="results/orchestrator.pt")
@@ -201,6 +204,20 @@ def main():
     train_q = {ag: np.concatenate(train_q_list[ag], axis=0) for ag in args.agents}
     print(f"[setup] training env: {train_hist.shape[0]} windows mixed across {len(test_hist_by_ds)} datasets")
 
+    # ---- Quick diagnostic: per-agent mean CRPS on training data ----
+    print("\n[diag] per-agent mean training-CRPS (window-averaged):")
+    for ag in args.agents:
+        # mean over windows of (mean over quantiles of mean over horizon of pinball loss * 2)
+        losses = []
+        for qi, lv in enumerate(levels):
+            diff = train_tgt - train_q[ag][:, qi, :]
+            pinball = np.maximum(lv * diff, (lv - 1) * diff)
+            losses.append(np.mean(pinball, axis=1))  # mean over horizon -> (N,)
+        per_w = 2.0 * np.mean(np.stack(losses, axis=0), axis=0)
+        print(f"  {ag:20s} mean={per_w.mean():.4f}  std={per_w.std():.4f}")
+    print()
+
+    n_datasets = int(train_ids.max()) + 1
     # ---- Build env + policy ----
     train_env = RefinementEnv(
         histories=train_hist,
@@ -208,9 +225,12 @@ def main():
         agent_quantiles=train_q,
         levels=levels,
         dataset_ids=train_ids,
+        n_datasets=n_datasets,
+        include_dataset_id=args.include_dataset_id,
         cost_weight=args.cost_weight,
     )
-    print(f"[setup] state_dim={train_env.state_dim}, n_actions={train_env.n_actions}")
+    print(f"[setup] state_dim={train_env.state_dim}, n_actions={train_env.n_actions}, "
+          f"include_dataset_id={args.include_dataset_id}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.seed)
@@ -220,6 +240,7 @@ def main():
         n_iters=args.n_iters,
         n_episodes_per_iter=args.episodes_per_iter,
         lr=args.lr,
+        entropy_coef=args.entropy_coef,
         seed=args.seed,
     )
     trainer = PPOTrainer(train_env, policy, cfg, device=device)
@@ -235,13 +256,18 @@ def main():
     # ---- Eval on each test dataset ----
     print("\n[eval] per-dataset test")
     per_dataset_results = {}
-    for ds_name, test_hist in test_hist_by_ds.items():
+    ds_order = list(test_hist_by_ds.keys())
+    for eval_ds_id, ds_name in enumerate(ds_order):
+        test_hist = test_hist_by_ds[ds_name]
         test_tgt = test_tgt_by_ds[ds_name]
         eval_env = RefinementEnv(
             histories=test_hist,
             targets=test_tgt,
             agent_quantiles=test_q_by_ds[ds_name],
             levels=levels,
+            dataset_ids=np.full(len(test_hist), eval_ds_id, dtype=np.int32),
+            n_datasets=n_datasets,
+            include_dataset_id=args.include_dataset_id,
             cost_weight=args.cost_weight,
         )
         result = trainer.evaluate(eval_env, n_windows=len(test_hist), deterministic=True)

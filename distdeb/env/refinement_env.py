@@ -72,10 +72,12 @@ class RefinementEnv:
         targets: np.ndarray,              # (N, H) — true horizons (z-scored)
         agent_quantiles: Dict[str, np.ndarray],  # name -> (N, Q, H)
         levels: np.ndarray,               # (Q,) quantile levels
-        dataset_ids: Optional[np.ndarray] = None,  # (N,) per-window dataset id (for stratified sampling)
+        dataset_ids: Optional[np.ndarray] = None,  # (N,) per-window dataset id
+        n_datasets: Optional[int] = None,  # required if include_dataset_id=True
         agent_costs: Optional[Dict[str, float]] = None,
-        cost_weight: float = 0.01,
+        cost_weight: float = 0.001,
         feature_fn=window_features,
+        include_dataset_id: bool = False,  # adds one-hot dataset id to state
     ):
         self.histories = np.asarray(histories, dtype=np.float32)
         self.targets = np.asarray(targets, dtype=np.float32)
@@ -86,6 +88,10 @@ class RefinementEnv:
         self.dataset_ids = (
             np.zeros(len(self.histories), dtype=np.int32) if dataset_ids is None else np.asarray(dataset_ids)
         )
+        if include_dataset_id and n_datasets is None:
+            n_datasets = int(self.dataset_ids.max()) + 1
+        self.include_dataset_id = include_dataset_id
+        self.n_datasets = n_datasets or 0
         self.agent_costs = (
             {n: 1.0 for n in self.agent_names} if agent_costs is None else dict(agent_costs)
         )
@@ -105,8 +111,15 @@ class RefinementEnv:
             [self.feature_fn(self.histories[i]) for i in range(self.N)], axis=0
         ).astype(np.float32)
 
-        # State layout: window_features + ensemble_quantiles (Q*H) + width + called_mask + n_calls
-        self.state_dim = self._feat_dim + self.Q * self.H + 1 + self.N_agents + 1
+        # State layout:
+        #   window_features (feat_dim)
+        #   [optional] dataset_id one-hot (n_datasets)
+        #   ensemble_quantiles (Q*H)
+        #   width (1)
+        #   called_mask (N_agents)
+        #   n_calls (1)
+        extra_ds = self.n_datasets if self.include_dataset_id else 0
+        self.state_dim = self._feat_dim + extra_ds + self.Q * self.H + 1 + self.N_agents + 1
         self.n_actions = self.N_agents + 1  # +1 for HALT
         self.halt_action = self.N_agents
 
@@ -159,13 +172,19 @@ class RefinementEnv:
 
     def _get_state(self) -> np.ndarray:
         feat = self._features[self._window_idx]
+        parts = [feat]
+        if self.include_dataset_id:
+            ds_onehot = np.zeros(self.n_datasets, dtype=np.float32)
+            ds_id = int(self.dataset_ids[self._window_idx])
+            if 0 <= ds_id < self.n_datasets:
+                ds_onehot[ds_id] = 1.0
+            parts.append(ds_onehot)
         if self._called:
             stacked = np.stack(
                 [self.quantiles[self.agent_names[a]][self._window_idx] for a in self._called],
                 axis=0,
             )
             ensemble = stacked.mean(axis=0)  # (Q, H)
-            # Width of central 80% interval (assumes 0.1 & 0.9 present at quantile axes 0 & -1).
             lo = ensemble[0]
             hi = ensemble[-1]
             width = float(np.mean(hi - lo))
@@ -176,10 +195,13 @@ class RefinementEnv:
         for a in self._called:
             mask[a] = 1.0
         n_calls = float(len(self._called))
-        return np.concatenate(
-            [feat, ensemble.flatten(), np.array([width], dtype=np.float32), mask,
-             np.array([n_calls], dtype=np.float32)],
-        ).astype(np.float32)
+        parts.extend([
+            ensemble.flatten(),
+            np.array([width], dtype=np.float32),
+            mask,
+            np.array([n_calls], dtype=np.float32),
+        ])
+        return np.concatenate(parts).astype(np.float32)
 
     def _terminal_reward(self) -> float:
         """Negative CRPS of the current ensemble vs. the target for this window."""
