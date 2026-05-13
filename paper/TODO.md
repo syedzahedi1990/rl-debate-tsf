@@ -2,25 +2,29 @@
 
 Working draft: `main.tex` (compile-once skeleton).
 
-## Path A (workshop) — required for submission
+## Path A (workshop) — submission checklist
 
-- [ ] **Pull canonical numbers** from latest `results/pilot_gate2.json`,
-  `results/diag_within_dataset.json`, `results/diag_conformal.json` into
-  Table 1 (per-agent + oracle) and Table 2 (routing vs conformal vs
-  ensembles).
-- [ ] **Figure 1**: schematic of Sequential Refinement (manually drawn or tikz).
-- [ ] **Figure 2**: bar chart per-agent CRPS / cov80 across 4 ETT datasets.
-- [ ] **Figure 3**: oracle headroom + RL agent-pick distribution per dataset.
-- [ ] **Figure 4**: training curve (mean_return, mean_ep_len) over PPO iters.
-- [ ] **Related Work section** body text (intro currently stubbed). Cite at minimum:
-  Du et al. (multi-agent debate), Puppeteer, Router-R1, Tan et al.,
-  PatchTST, iTransformer, TimeMixer, Chronos / Moirai / TimesFM,
-  Vovk / Romano (conformal), Should-we-be-going-MAD.
-- [ ] **Appendix A**: with/without dataset_id ablation (sensitivity).
-- [ ] **Appendix B**: PPO hyperparameters, panel agent configs, eval protocol.
-- [ ] Decide venue: ICLR Workshop (March deadline) vs NeurIPS Time Series
-  Workshop (around Oct) vs TMLR (rolling). Page limit: 4 (ICLR ws) /
-  8 (TMLR initial).
+- [x] **Pull canonical numbers** from latest results JSONs into the
+  two main tables.
+- [x] **Related Work section** body text.
+- [x] **Method section** body text.
+- [x] **Discussion + Conclusion** sections.
+- [x] **Appendix A** (dataset-id ablation), **B** (hyperparameters),
+  **D** (RL choice distribution), **E** (shuffled-split conformal sanity),
+  **F** (Conv1D ablation).
+- [x] **References** complete in `references.bib`.
+- [ ] **Run `scripts/generate_figures.py`** to produce PDFs, then
+  uncomment `\includegraphics` blocks in `main.tex`.
+- [ ] **Appendix C**: sensitivity to test window count (currently TODO marker).
+- [ ] **Method schematic** (Figure 1): sequential-refinement diagram. Hand-drawn
+  or `tikz`. Not blocking submission.
+- [ ] **Final proofread** for length: ICLR/NeurIPS workshop limits ~8pp,
+  current draft is ~6pp. TMLR allows up to 12pp.
+- [ ] **Decide venue and apply stylesheet**:
+  - **TMLR (recommended, rolling)**: use `tmlr.sty`; current article-class
+    draft converts cleanly.
+  - **ICLR Workshop**: download next-round style file when CFP opens.
+  - **NeurIPS Workshop**: same.
 
 ## Path B (top-tier-receptive expansion) — required for AAAI/AISTATS/NeurIPS D&B
 
