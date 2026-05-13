@@ -114,22 +114,23 @@ All agents output quantile forecasts {0.1, 0.5, 0.9} over the horizon. We standa
 - **"Should we be going MAD?" (Smit et al., ICML'24) and "Debate or Vote" (2508.17536).** Cost-matched majority vote is the headline baseline. If we don't beat it on CRPS at matched n_calls, the paper is dead.
 - **MAD over-flips correct answers (ICLR 2025 blog).** Report answer-stability metric: fraction of forecasts that change sign / direction across debate rounds.
 
-## 8. Pilot gates — current state (2026-05-13)
+## 8. Pilot gates — final state (locked 2026-05-13)
 
-- **Gate 1 (any static mixture beats best single on CRPS?): FAILED** across 5 attempts. Equal-weight ensemble, val-tuned simplex, val-tuned over heterogeneous panels — none beat the best single Chronos on a majority of ETT datasets. Diagnosed: at H=96 on ETT, Chronos near-saturates the achievable CRPS; no static mixture extracts more.
+- **Gate 1**: FAILED. No static mixture beats best single Chronos on ETT-small at H=96.
+- **Gate 1b (oracle headroom)**: +5.94% mean (+7.62% excl. ETTm2). Decorrelation exists but is window-stochastic.
+- **Gate 2 (standard val/test split)**: FAILED on CRPS criterion. PASSED on calibration (cov80 within ±0.03 of 0.80 on 3/4 datasets) and HALT-exercising. Mean CRPS delta -17.5% vs best-single.
+- **Path C (same-distribution diagnostic)**: -1.36% mean CRPS delta. The method has a ceiling — even matched-distribution training cannot extract the oracle headroom.
+- **Conv1D ablation**: tested in place of hand-crafted features; *worsened* standard-split CRPS to -34.1% mean. Conv1D overfits val; raw-lookback features don't help under distribution shift.
+- **Conformal baseline (the genuinely interesting finding)**: split-conformal *overcorrects* on 3/4 ETT datasets (cov80 0.95+), inflating intervals and harming CRPS. The RL orchestrator does not overcorrect (mean cov80 deviation 0.022 vs 0.093 for conformal best-single).
 
-- **Gate 1b (oracle per-window headroom): PARTIAL PASS** at +5.94% mean (7.62% excl. saturated ETTm2). Per-window decorrelation is real — oracle picks different agents on 22–37% of windows across 3/4 datasets. A learned orchestrator can in principle extract a fraction of this.
+**Verdict**: workshop-tier paper. Headline = calibration-without-conformal-overcorrection, supporting claim = matched-uniform-CRPS at 30% lower compute. Ceiling on CRPS over best-single documented as a contribution rather than hidden as a limitation.
 
-- **Gate 2 (does the RL orchestrator beat baselines on calibration AND at-matched-cost CRPS?)**:
-  - Pass criteria:
-    1. Test cov80 within ±0.03 of nominal 0.80 on ≥ 3/4 datasets.
-    2. Test CRPS not worse than best-single by more than 2% on any dataset.
-    3. Mean n_calls < N_agents (i.e., RL is exercising the halt action).
-  - Fail → pivot to a pure-calibration paper (no RL component), or expand dataset suite.
+**Next-step priorities (in order)**:
+1. Finalize workshop draft using current results — target ICLR Workshop or TMLR.
+2. Expand to Weather / Electricity / Traffic to broaden the empirical claim before a stronger venue.
+3. Multi-seed evaluation + Wilcoxon for statistical rigor.
 
-- **Gate 3 (generalization to more datasets and longer horizons)**: deferred until Gate 2 passes. Targets: Weather, Electricity, Traffic, plus a GIFT-Eval subset; horizons {96, 336, 720}.
-
-Total pilot budget remaining: ≤ 3 days of A100 time. Cache persistence on Drive is mandatory to avoid the 7-hour-loss-on-disconnect problem.
+No further method iteration on ETT-small at H=96.
 
 ## 9. Risks (known)
 

@@ -241,24 +241,58 @@ ceiling at $H=96$ on ETT even under distribution-matched training.
 \section{Discussion and Limitations}
 \label{sec:discussion}
 
-\paragraph{Empirical ceiling.} Per-window routing extracts only a small
-fraction of the oracle headroom in our experiments. The bottleneck is
-\emph{conditional} information: features that distinguish which agent
-will win on a given window. Replacing hand-crafted statistics with a
-learned encoder (Conv1D on raw lookback) is a natural extension.
+\paragraph{Empirical ceiling on per-window routing.}
+The Path~C diagnostic (Section~\ref{sec:ceiling}) bounds the method's
+upside at $-1.36\%$ CRPS vs.\ best-single under same-distribution
+training---i.e.\ the oracle headroom of $+5.94\%$ is not extractable
+from input features in our setup. We additionally tested a Conv1D
+encoder over the raw lookback in place of the 10-dim hand-crafted
+feature vector; this \emph{degraded} the standard-split mean CRPS
+delta from $-17.5\%$ to $-34.1\%$. We attribute the regression to
+overfitting the val mixture: with greater representational capacity,
+the policy locks onto agent picks that look good on val but
+generalize worse to test. The result is consistent with the broader
+finding that per-window agent identity is partly stochastic noise at
+$H=96$ on ETT-small, not a deterministic function of recoverable
+input features.
 
-\paragraph{Single benchmark.} Results are restricted to ETT-small at $H=96$.
-Behavior at longer horizons (Chronos warns at $H>64$) and across more
-heterogeneous datasets (Weather, Electricity, Traffic, M-competition,
-GIFT-Eval) is an open question we plan to address.
+\paragraph{What does generalize: calibration without conformal's
+overcorrection.}
+The robust finding is on calibration. The naïve foundation forecasts
+are systematically miscalibrated and split conformal applied to the
+best single agent overcorrects on $3/4$ datasets (Section~\ref{sec:comparison}).
+Multi-agent ensembling (uniform or RL-routed) sidesteps the overcorrection
+by combining agents with complementary miscalibration directions. The
+RL orchestrator does this at $\approx 30\%$ fewer agent calls than uniform.
+This part of the story holds across our experiments and is independent
+of the per-window-routing failure mode.
 
-\paragraph{Differentiating from concurrent work.} Puppeteer~\cite{wei2025puppeteer}
-and Router-R1~\cite{tang2025routerr1} train RL orchestrators for text-domain
-MDPs (reasoning, QA). Their predictions are tokens; ours are predictive
-distributions over a horizon. Their state has no calibration features
-or interval widths; ours does. Their halt rule is a learned token /
-terminator agent; ours is a learned discrete HALT conditioned on the
-ensemble's running quantile state.
+\paragraph{Differentiation from concurrent text-domain RL orchestrators.}
+Puppeteer~\cite{wei2025puppeteer} and Router-R1~\cite{tang2025routerr1}
+train RL orchestrators in text-domain MDPs (reasoning, QA). Their
+predictions are tokens; ours are predictive distributions over a
+horizon. Their state has no calibration features or interval widths;
+ours does. Their halt is a learned token; ours is conditioned on the
+ensemble's running quantile state. These differences are structural,
+not incremental.
+
+\paragraph{Limitations.}
+\begin{itemize}
+\item Single benchmark family (ETT-small) at one horizon ($H=96$). Behavior
+  at longer horizons (Chronos warns at $H{>}64$) and across more
+  heterogeneous datasets (Weather, Electricity, Traffic, M4/M5,
+  GIFT-Eval) is open. We expect the ceiling characterization to be
+  benchmark-specific.
+\item Equal-weight aggregation across called agents. The RL policy
+  chooses agent identity but not weight; learned weights are a natural
+  extension.
+\item TimesFM is excluded due to a Python-3.12 / paxml incompatibility
+  in the current PyPI release; can be restored on a Python-3.11
+  environment.
+\item Qwen-LLMTime is included in the codebase but parked due to
+  sample-collapse (cov$_{80}=0.25$); fixing the diversity issue is
+  an obvious next step for a sharper LLM-in-the-panel claim.
+\end{itemize}
 
 \bibliographystyle{plain}
 \bibliography{references}
