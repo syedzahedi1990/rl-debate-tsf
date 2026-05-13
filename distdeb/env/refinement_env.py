@@ -78,6 +78,7 @@ class RefinementEnv:
         cost_weight: float = 0.001,
         feature_fn=window_features,
         include_dataset_id: bool = False,  # adds one-hot dataset id to state
+        include_history: bool = False,     # adds raw lookback (history_dim) to state
     ):
         self.histories = np.asarray(histories, dtype=np.float32)
         self.targets = np.asarray(targets, dtype=np.float32)
@@ -111,15 +112,20 @@ class RefinementEnv:
             [self.feature_fn(self.histories[i]) for i in range(self.N)], axis=0
         ).astype(np.float32)
 
-        # State layout:
+        # State layout (in order):
         #   window_features (feat_dim)
+        #   [optional] raw history (L) — for Conv1D encoder
         #   [optional] dataset_id one-hot (n_datasets)
         #   ensemble_quantiles (Q*H)
         #   width (1)
         #   called_mask (N_agents)
         #   n_calls (1)
+        self.include_history = include_history
         extra_ds = self.n_datasets if self.include_dataset_id else 0
-        self.state_dim = self._feat_dim + extra_ds + self.Q * self.H + 1 + self.N_agents + 1
+        extra_hist = self.L if self.include_history else 0
+        self.history_offset = self._feat_dim if self.include_history else None
+        self.history_dim = self.L if self.include_history else None
+        self.state_dim = self._feat_dim + extra_hist + extra_ds + self.Q * self.H + 1 + self.N_agents + 1
         self.n_actions = self.N_agents + 1  # +1 for HALT
         self.halt_action = self.N_agents
 
@@ -173,6 +179,8 @@ class RefinementEnv:
     def _get_state(self) -> np.ndarray:
         feat = self._features[self._window_idx]
         parts = [feat]
+        if self.include_history:
+            parts.append(self.histories[self._window_idx])
         if self.include_dataset_id:
             ds_onehot = np.zeros(self.n_datasets, dtype=np.float32)
             ds_id = int(self.dataset_ids[self._window_idx])

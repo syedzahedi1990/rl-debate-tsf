@@ -115,6 +115,8 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--include-dataset-id", action="store_true", default=True)
     p.add_argument("--no-dataset-id", dest="include_dataset_id", action="store_false")
+    p.add_argument("--use-conv1d", action="store_true", default=False,
+                   help="Use Conv1D encoder over raw lookback (adds history to env state).")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="results/pilot_gate2.json")
     p.add_argument("--ckpt", default="results/orchestrator.pt")
@@ -227,15 +229,20 @@ def main():
         dataset_ids=train_ids,
         n_datasets=n_datasets,
         include_dataset_id=args.include_dataset_id,
+        include_history=args.use_conv1d,
         cost_weight=args.cost_weight,
     )
     print(f"[setup] state_dim={train_env.state_dim}, n_actions={train_env.n_actions}, "
-          f"include_dataset_id={args.include_dataset_id}")
+          f"include_dataset_id={args.include_dataset_id}, use_conv1d={args.use_conv1d}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    policy = PolicyValueNet(train_env.state_dim, train_env.n_actions, hidden=128)
+    policy_kwargs = {"hidden": 128}
+    if args.use_conv1d:
+        policy_kwargs["history_offset"] = train_env.history_offset
+        policy_kwargs["history_dim"] = train_env.history_dim
+    policy = PolicyValueNet(train_env.state_dim, train_env.n_actions, **policy_kwargs)
     cfg = PPOConfig(
         n_iters=args.n_iters,
         n_episodes_per_iter=args.episodes_per_iter,
@@ -268,6 +275,7 @@ def main():
             dataset_ids=np.full(len(test_hist), eval_ds_id, dtype=np.int32),
             n_datasets=n_datasets,
             include_dataset_id=args.include_dataset_id,
+            include_history=args.use_conv1d,
             cost_weight=args.cost_weight,
         )
         result = trainer.evaluate(eval_env, n_windows=len(test_hist), deterministic=True)
